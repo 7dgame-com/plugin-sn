@@ -1,0 +1,13 @@
+{
+  "id": "sn-management",
+  "name": "SN 分发管理",
+  "nameI18n": { "zh-CN": "SN 分发管理", "zh-TW": "SN 分發管理", "en-US": "SN Distribution", "ja-JP": "SN Distribution", "th-TH": "SN Distribution" },
+  "description": "Rokid 设备 SN 生成、分发与激活管理",
+  "url": "http://localhost:3018/",
+  "icon": "Key",
+  "group": "builtins",
+  "enabled": true,
+  "order": 4,
+  "accessScope": "root-only",
+  "version": "1.0.0"
+}

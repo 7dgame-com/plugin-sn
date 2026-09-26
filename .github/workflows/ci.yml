@@ -1,0 +1,161 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop, publish]
+  pull_request:
+    branches: [main, develop, publish]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: plugin-sn-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: hkccr.ccs.tencentyun.com
+  IMAGE: hkccr.ccs.tencentyun.com/plugins/plugin-sn
+
+jobs:
+  validate:
+    name: Test & Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout plugin-sn only
+        uses: actions/checkout@v5
+        with:
+          submodules: false
+          persist-credentials: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+        with:
+          version: 9.15.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Unit tests
+        run: pnpm test
+
+      - name: Type check and production build
+        run: pnpm build
+
+      - name: Upload frontend artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: plugin-sn-dist-${{ github.sha }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  container:
+    name: Container Check & Publish
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout plugin-sn only
+        uses: actions/checkout@v5
+        with:
+          submodules: false
+          persist-credentials: false
+
+      - name: Setup Node.js for container checks
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          package-manager-cache: false
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build the standalone image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: plugin-sn:ci
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha,scope=plugin-sn
+          cache-to: type=gha,scope=plugin-sn,mode=max
+
+      - name: Check Nginx, SPA routes and API proxy
+        run: node scripts/test-container.mjs plugin-sn:ci
+
+      - name: Generate release tags
+        if: github.event_name != 'pull_request' && contains(fromJSON('["refs/heads/main","refs/heads/develop","refs/heads/publish"]'), github.ref)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          flavor: latest=false
+          tags: |
+            type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=develop,enable=${{ github.ref == 'refs/heads/develop' }}
+            type=raw,value=publish,enable=${{ github.ref == 'refs/heads/publish' }}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/publish' }}
+            type=sha,format=long
+
+      - name: Check registry credentials
+        if: steps.meta.outcome == 'success'
+        env:
+          REGISTRY_USER: ${{ secrets.TENCENT_REGISTRY_USERNAME || secrets.TENCENT_REGISTRY_USER }}
+          REGISTRY_PASSWORD: ${{ secrets.TENCENT_REGISTRY_PASSWORD }}
+        run: |
+          if [ -z "$REGISTRY_USER" ] || [ -z "$REGISTRY_PASSWORD" ]; then
+            echo '::error::Configure TENCENT_REGISTRY_USERNAME (or TENCENT_REGISTRY_USER) and TENCENT_REGISTRY_PASSWORD for the plugin-sn repository.'
+            exit 1
+          fi
+
+      - name: Log in to Tencent registry
+        if: steps.meta.outcome == 'success'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.TENCENT_REGISTRY_USERNAME || secrets.TENCENT_REGISTRY_USER }}
+          password: ${{ secrets.TENCENT_REGISTRY_PASSWORD }}
+
+      # Publish the exact local image checked above, without rebuilding it.
+      - name: Push the verified image
+        if: steps.meta.outcome == 'success'
+        env:
+          IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          set -euo pipefail
+          while IFS= read -r tag; do
+            [ -n "$tag" ] || continue
+            docker tag plugin-sn:ci "$tag"
+            docker push "$tag"
+          done <<< "$IMAGE_TAGS"
+
+      - name: Record the published image
+        if: steps.meta.outcome == 'success'
+        env:
+          IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          set -euo pipefail
+          {
+            echo '### plugin-sn image'
+            echo "Commit: $GITHUB_SHA"
+            echo '```text'
+            printf '%s\n' "$IMAGE_TAGS"
+            docker image inspect plugin-sn:ci --format 'Image ID: {{.Id}}'
+            docker buildx imagetools inspect "$IMAGE:sha-$GITHUB_SHA"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

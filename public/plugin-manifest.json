@@ -1,0 +1,7 @@
+{
+  "id": "sn-management",
+  "schemaVersion": "1",
+  "nameI18n": { "zh-CN": "SN 分发管理", "zh-TW": "SN 分發管理", "en-US": "SN Distribution", "ja-JP": "SN Distribution", "th-TH": "SN Distribution" },
+  "descriptionI18n": { "zh-CN": "Rokid 设备 SN 生成、分发与激活管理", "en-US": "Generate and distribute SN codes for Rokid device activation" },
+  "group": { "id": "builtins", "nameI18n": { "zh-CN": "基础工具", "en-US": "Core Tools" } }
+}

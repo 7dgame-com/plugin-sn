@@ -1,0 +1,30 @@
+server {
+    listen 80;
+    server_name _;
+    root /usr/share/nginx/html;
+    index index.html;
+    resolver ${APP_RESOLVER} valid=300s ipv6=off;
+    resolver_timeout 5s;
+
+    location /api/ {
+        set $sn_api "${APP_API_1_URL}";
+        rewrite ^/api/(.*)$ /$1 break;
+        proxy_pass $sn_api$uri$is_args$args;
+        proxy_set_header Host ${APP_API_HOST};
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_ssl_server_name on;
+        proxy_ssl_name ${APP_API_TLS_NAME};
+        proxy_connect_timeout 5s;
+        proxy_read_timeout 60s;
+        proxy_next_upstream off;
+        add_header Cache-Control "no-store" always;
+    }
+    location = /health {
+        access_log off;
+        default_type application/json;
+        return 200 '{"status":"ok","plugin":"sn-management"}';
+    }
+    location / { try_files $uri $uri/ /index.html; }
+}
