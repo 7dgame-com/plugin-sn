@@ -5,7 +5,7 @@
 
 SN 分发管理用于给 Rokid 客户端分配账号登录凭证。root 管理员为已有普通账号生成 SN，设备首次提交自己的 UUID 和 SN 完成绑定；以后用相同凭据登录该账号，无需输入用户名和密码。
 
-本说明面向管理员、产品和运维。服务端及管理插件代码已实现，但尚未部署到业务环境；Unity/Rokid 客户端需要按 [Unity 客户端实现说明](UNITY_CLIENT_README.md) 接入，本仓库没有因此完成或发布客户端。
+本说明面向管理员、产品和运维。此前 32 位版本已在开发环境部署并进行功能验收；本次改为新生成 16 位、兼容旧 32 位，不表示新规则已部署或生产发布。实际版本与验收状态以平台仓库的 `docs/sn-management/DEVELOPMENT_DEPLOYMENT_20260927.md` 为准。Unity/Rokid 客户端需要按 [Unity 客户端实现说明](UNITY_CLIENT_README.md) 接入，本仓库没有因此完成或发布客户端。
 
 ## 账号、SN 与设备的关系
 
@@ -16,6 +16,7 @@ SN 分发管理用于给 Rokid 客户端分配账号登录凭证。root 管理�
 | 一个 SN | 生成时固定一个账号，首次激活时固定一个设备 UUID，之后不能修改。 |
 | 一个账号 | 可以关联多个 SN；给每台设备各分配一个 SN，即可让多台设备登录同一个账号。 |
 | 一个设备 UUID | 在 SN 系统内只能占用一个 SN；该 SN 停用后也不会释放 UUID。 |
+| SN 格式 | 新码为 16 位 Crockford Base32，按每 4 位分组显示为 19 个字符；历史 32 位码继续有效，不截断或重新发行。 |
 | SN 有效期 | 当前为永久码，没有到期时间、续期或期限配置；实际使用仍受 SN 开关和账号状态限制。 |
 
 SN 和设备绑定业务只新增一张 `device_sn` 表，记录所属账号、SN 凭证、`device_uuid`、启用状态及相关时间。生成时 `device_uuid` 为空，首次激活时写入并保持唯一；用户、审计和登录会话继续复用现有系统。
@@ -83,7 +84,7 @@ corepack pnpm dev
 
 生产开放顺序如下：
 
-1. 准备兼容主后端，在权威主库执行新增的 `device_sn` 迁移，并配置 SN 加密密钥、Redis 限流及相关权限。操作依据 [主后端部署说明](BACKEND_API_README.md)。这是尚未部署的新功能，没有既有线上 SN 数据需要回填。
+1. 准备兼容主后端，按目标环境实际状态执行 `device_sn` 和 root RBAC 迁移，并配置 SN 加密密钥、Redis 限流及相关权限。操作依据 [主后端部署说明](BACKEND_API_README.md)。开发环境已有历史 32 位测试码；本次长度调整不需要变更表结构或回填旧码。先升级接受 16/32 位的后端，再分发新码。
 2. 如果当前环境使用 identity 签发登录凭据，先完成其会话迁移和就绪检查，参见平台仓库中的 identity 运维说明：`xrugc-platform/services/identity-service/docs/runbooks/device-sn-sessions.md`。
 3. 构建并部署插件，配置单一 `APP_API_1_URL`。插件拒绝配置第二上游；不要随机分流首次绑定写入。双后端只有在同一权威写库、签名配置、密钥及限流状态满足一致性要求后，才可按后端方案使用。
 4. 在系统管理插件中按 [注册配置示例](../plugins.json.example) 登记 `sn-management`，填写实际插件业务 URL，保留 `accessScope: root-only`。本地 `developmentOnly` 登记不会自动进入生产；业务 URL 不应填写 Portainer 管理地址，入口说明见平台仓库 `xrugc-platform/docs/deployment-topology.md`。

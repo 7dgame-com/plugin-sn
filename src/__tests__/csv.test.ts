@@ -15,4 +15,14 @@ describe('CSV export', () => {
     expect(csv).toContain('"\'=formula"')
     expect(csv).toContain('中文')
   })
+  it('preserves new 16-character and legacy 32-character SN values in the same export', () => {
+    const csv = codesCsv([
+      { id: 1, sn: '0000-1111-2222-3333', username: 'test-user', device_uuid: null, status: 'pending', remark: null },
+      { id: 2, sn: '0000-1111-2222-3333-4444-5555-6666-7777', username: 'test-user', device_uuid: 'device-2', status: 'active', remark: null },
+    ])
+    expect(csv.split('\r\n').slice(1)).toEqual([
+      '"1","0000-1111-2222-3333","test-user","","pending",""',
+      '"2","0000-1111-2222-3333-4444-5555-6666-7777","test-user","device-2","active",""',
+    ])
+  })
 })
