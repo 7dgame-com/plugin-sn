@@ -2,7 +2,9 @@ import { createI18n } from 'vue-i18n'
 
 const zh = {
   title: 'SN 分发管理', subtitle: '生成账号专属 SN，分发给 Rokid 设备完成激活。每个 SN 绑定一台设备。',
-  connecting: '正在验证管理员会话…', rootOnly: '仅 root 管理员可管理 SN', fromHost: '请从主系统的 SN 分发管理插件进入。',
+  connecting: '正在验证 SN 管理权限…', accessDenied: '当前账号没有 SN 管理权限', accessRevoked: 'SN 管理权限已变更',
+  accessDeniedHint: '请联系 root 管理员检查插件访问范围，权限调整后可重新验证。', recheckAccess: '重新验证权限', fromHost: '请从主系统的 SN 分发管理插件进入。',
+  accessUnavailable: '暂时无法确认 SN 管理权限，请稍后重试',
   sessionFailed: '会话验证失败', retry: '重试', search: '搜索账号、SN 尾号或设备 UUID', allStatus: '全部状态',
   status: { pending: '未激活', active: '已激活', disabled: '已停用' }, statusLabel: '状态', allAccounts: '全部账号',
   generate: '生成 SN', export: '导出所选 CSV', refresh: '刷新', account: '绑定账号', code: 'SN 码', device: '设备 UUID',
@@ -12,7 +14,7 @@ const zh = {
   generated: '本批次生成成功', generatedHint: '可复制或下载后分发。关闭后可从列表重新查看完整码。',
   copy: '复制', copyAll: '复制全部', copied: '已复制', copyFailed: '复制失败，请选中文本手动复制', exportBatch: '导出本批次 CSV',
   revealTitle: '完整 SN', secretHint: '完整 SN 是设备登录凭证，请仅分发给目标设备使用者。',
-  confirmDisable: '停用后，此 SN 对应设备将不能继续登录或使用现有会话。确认停用？',
+  confirmDisable: '停用后，将立即禁止此 SN 的新登录和令牌刷新。已签发的访问令牌会在自然到期后失效，剩余有效期最长 3 小时。确认停用？',
   confirmEnable: '恢复后，原绑定设备可继续使用此 SN 登录。确认恢复？', updated: '已保存',
   audit: '操作记录', event: '事件', operator: '操作账号 ID', time: '时间', context: '详情', noEvents: '暂无操作记录',
   noData: '暂无 SN', emptySelection: '请先选择要导出的 SN', invalidGenerate: '请选择账号并输入 1–100 的整数数量',
@@ -22,7 +24,9 @@ const zh = {
 }
 const en = {
   title: 'SN distribution', subtitle: 'Generate account-bound SN codes for Rokid activation. Each SN binds to one device.',
-  connecting: 'Verifying administrator session…', rootOnly: 'Only root administrators can manage SN codes', fromHost: 'Open SN distribution from the main application.',
+  connecting: 'Verifying SN management access…', accessDenied: 'This account does not have SN management access', accessRevoked: 'SN management access has changed',
+  accessDeniedHint: 'Ask a root administrator to check the plugin access scope, then verify access again.', recheckAccess: 'Verify access again', fromHost: 'Open SN distribution from the main application.',
+  accessUnavailable: 'SN management access cannot be verified. Please try again later.',
   sessionFailed: 'Session verification failed', retry: 'Retry', search: 'Search account, SN suffix or device UUID', allStatus: 'All statuses',
   status: { pending: 'Pending', active: 'Active', disabled: 'Disabled' }, statusLabel: 'Status', allAccounts: 'All accounts',
   generate: 'Generate SN', export: 'Export selected CSV', refresh: 'Refresh', account: 'Account', code: 'SN code', device: 'Device UUID',
@@ -32,7 +36,7 @@ const en = {
   generated: 'SN codes generated', generatedHint: 'Copy or download these codes for distribution. You can reveal them later from the list.',
   copy: 'Copy', copyAll: 'Copy all', copied: 'Copied', copyFailed: 'Copy failed. Select and copy the text manually.', exportBatch: 'Export batch CSV',
   revealTitle: 'Full SN code', secretHint: 'The full SN is a device login credential. Share it only with the intended device user.',
-  confirmDisable: 'This SN will no longer allow login or existing sessions. Disable it?',
+  confirmDisable: 'Disabling this SN immediately blocks new logins and token refreshes. Existing access tokens remain valid until they expire, for up to 3 hours. Disable it?',
   confirmEnable: 'The originally bound device will be able to log in again. Restore this SN?', updated: 'Saved',
   audit: 'Audit trail', event: 'Event', operator: 'Actor account ID', time: 'Time', context: 'Details', noEvents: 'No events yet',
   noData: 'No SN codes', emptySelection: 'Select SN codes to export', invalidGenerate: 'Select an account and an integer quantity from 1 to 100',
