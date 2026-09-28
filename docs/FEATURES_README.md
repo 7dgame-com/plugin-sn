@@ -3,19 +3,20 @@
 本独立仓库只包含 SN 管理前端插件及相关文档。设备认证、绑定、数据库迁移和 Token
 签发由 `xrugc-platform` 的平台主后端及其身份服务提供；本仓库不包含后端或 Unity/Rokid 客户端实现。
 
-SN 分发管理用于给 Rokid 客户端分配账号登录凭证。root 管理员为已有普通账号生成 SN，设备首次提交自己的 UUID 和 SN 完成绑定；以后用相同凭据登录该账号，无需输入用户名和密码。
+SN 分发管理用于给 Rokid 客户端分配账号登录凭证。获得插件访问权限的账号为已有普通账号生成 SN，设备首次提交自己的 UUID 和 SN 完成绑定；以后用相同凭据登录该账号，无需输入用户名和密码。初始只有 root 可管理，root 可通过插件配置调整访问范围。
 
-本说明面向管理员、产品和运维。服务端及管理插件代码已实现，但尚未部署到业务环境；Unity/Rokid 客户端需要按 [Unity 客户端实现说明](UNITY_CLIENT_README.md) 接入，本仓库没有因此完成或发布客户端。
+本说明面向管理员、产品和运维。此前 32 位版本已在开发环境部署并进行功能验收；本文描述新生成 16 位、兼容旧 32 位及动态管理权限，不表示这些变更已部署或生产发布。实际版本与验收状态以平台仓库的 `docs/sn-management/DEVELOPMENT_DEPLOYMENT_20260927.md` 及后续发布记录为准。Unity/Rokid 客户端需要按 [Unity 客户端实现说明](UNITY_CLIENT_README.md) 接入，本仓库没有因此完成或发布客户端。
 
 ## 账号、SN 与设备的关系
 
 | 对象 | 规则 |
 | --- | --- |
-| 管理者 | 仅正常启用的 `root` 管理员可以生成、查看、导出和管理 SN；前后端均检查权限。 |
+| 管理者 | 正常启用、符合当前插件 `access_scope` 的普通登录会话；默认 root-only，可由 root 调为 admin-only 等。SN 设备会话始终无管理权限。 |
 | 绑定账号 | 必须是已有、正常启用的普通账号：`status=10`，且没有 `root`、`admin`、`manager` 角色。 |
 | 一个 SN | 生成时固定一个账号，首次激活时固定一个设备 UUID，之后不能修改。 |
 | 一个账号 | 可以关联多个 SN；给每台设备各分配一个 SN，即可让多台设备登录同一个账号。 |
 | 一个设备 UUID | 在 SN 系统内只能占用一个 SN；该 SN 停用后也不会释放 UUID。 |
+| SN 格式 | 新码为 16 位 Crockford Base32，按每 4 位分组显示为 19 个字符；历史 32 位码继续有效，不截断或重新发行。 |
 | SN 有效期 | 当前为永久码，没有到期时间、续期或期限配置；实际使用仍受 SN 开关和账号状态限制。 |
 
 SN 和设备绑定业务只新增一张 `device_sn` 表，记录所属账号、SN 凭证、`device_uuid`、启用状态及相关时间。生成时 `device_uuid` 为空，首次激活时写入并保持唯一；用户、审计和登录会话继续复用现有系统。
@@ -23,6 +24,14 @@ SN 和设备绑定业务只新增一张 `device_sn` 表，记录所属账号、S
 旧 `device` 表继续保留，本功能不读写它。旧设备记录或其 `owner_id` 不参与 SN 激活冲突判断，UUID 是否冲突只以 `device_sn` 中的绑定为准。
 
 ## 管理员可以做什么
+
+root 在系统管理的插件注册页面编辑 `sn-management` 的访问范围：`root-only` 允许 root；`admin-only` 允许 admin 和 root；`manager-only` 再允许 manager；`auth-only` 再允许 user。把范围从 `root-only` 改为 `admin-only` 即授权 admin 管理整个 SN 插件，改回即可收回，不需要修改代码或重新构建插件。
+
+注册示例默认 root-only；本次发布的用户指定目标为线上 admin-only，即 admin 和 root 均可管理，之后可随时改回。此处说明部署选项，不表示该线上配置已经生效。
+
+主后端逐请求检查当前配置。权限收回后，已打开的 admin 页面在下一次管理请求收到 403 时清除会话并关闭敏感界面，不自动重试；重新授权后可手动验证。主站菜单可能需刷新后才更新。调整管理权限不会允许管理员账号绑定 SN，也不会给设备 SN 会话增加管理权限。
+
+如果运行中无法读取权限配置，前端收到配置服务的专用 503 错误后也会清除会话、关闭敏感界面并忽略迟到响应，提示稍后重试。普通业务暂时失败不会被当作权限撤销。
 
 | 功能 | 当前行为 |
 | --- | --- |
@@ -41,7 +50,7 @@ SN 和设备绑定业务只新增一张 `device_sn` 表，记录所属账号、S
 
 ## 从分发到登录
 
-1. root 管理员进入主系统的 **SN 分发管理** 插件，选择普通账号并生成所需数量的 SN。
+1. 获得当前配置授权的账号进入主系统的 **SN 分发管理** 插件，选择普通账号并生成所需数量的 SN。
 2. 管理员把不同 SN 分发给不同 Rokid 设备。一台设备保留一个 SN；需要共用账号的设备使用绑定同一账号的不同 SN。
 3. Rokid 首次提交 SN 和稳定的设备 UUID 到 `POST /v1/auth/sn-activate`。后端完成绑定后签发原系统格式的登录 Token。
 4. 设备以后启动或 Access Token 到期时，以相同 SN 和 UUID 调用 `POST /v1/auth/sn-login`，继续登录同一账号。后续业务请求使用原有 Bearer Token 和账号权限。
@@ -83,10 +92,10 @@ corepack pnpm dev
 
 生产开放顺序如下：
 
-1. 准备兼容主后端，在权威主库执行新增的 `device_sn` 迁移，并配置 SN 加密密钥、Redis 限流及相关权限。操作依据 [主后端部署说明](BACKEND_API_README.md)。这是尚未部署的新功能，没有既有线上 SN 数据需要回填。
+1. 准备兼容主后端，按目标环境实际状态执行 `device_sn` 及相关迁移，并配置 SN 加密密钥、Redis 限流及可信插件配置读取。操作依据 [主后端部署说明](BACKEND_API_README.md)。开发环境已有历史 32 位测试码；长度调整不需要变更表结构或回填旧码。先升级接受 16/32 位且支持动态授权及 `/v1/plugin-sn/access` 的后端，再部署插件和分发新码。
 2. 如果当前环境使用 identity 签发登录凭据，先完成其会话迁移和就绪检查，参见平台仓库中的 identity 运维说明：`xrugc-platform/services/identity-service/docs/runbooks/device-sn-sessions.md`。
 3. 构建并部署插件，配置单一 `APP_API_1_URL`。插件拒绝配置第二上游；不要随机分流首次绑定写入。双后端只有在同一权威写库、签名配置、密钥及限流状态满足一致性要求后，才可按后端方案使用。
-4. 在系统管理插件中按 [注册配置示例](../plugins.json.example) 登记 `sn-management`，填写实际插件业务 URL，保留 `accessScope: root-only`。本地 `developmentOnly` 登记不会自动进入生产；业务 URL 不应填写 Portainer 管理地址，入口说明见平台仓库 `xrugc-platform/docs/deployment-topology.md`。
-5. 在对应开发环境验证 root 生成、设备首次激活、重登、停用、恢复及其他设备不受影响，记录环境和实际运行版本后，再开放给使用者。已有检查范围见平台仓库 `xrugc-platform/docs/sn-device-login-verification.md`。
+4. 在系统管理插件中按 [注册配置示例](../plugins.json.example) 登记 `sn-management`，填写实际插件业务 URL，初始使用 `accessScope: root-only`，之后可按需修改。本地 `developmentOnly` 登记不会自动进入生产；业务 URL 不应填写 Portainer 管理地址，入口说明见平台仓库 `xrugc-platform/docs/deployment-topology.md`。
+5. 在对应开发环境验证 root 默认可用、admin 默认拒绝、配置改为 admin-only 后可分发、改回后已打开页面拒绝继续操作，以及 SN 设备会话始终无管理权限；再验证设备首次激活、重登、停用、恢复及其他设备不受影响，记录环境和实际运行版本后，再开放给使用者。已有检查范围见平台仓库 `xrugc-platform/docs/sn-device-login-verification.md`。
 
 本说明不表示已经完成生产部署、线上数据库迁移或 Unity 客户端发布。新增和维护密钥时应使用部署 secret，并按后端说明保留旧解密密钥；数据库与密钥应配套备份。

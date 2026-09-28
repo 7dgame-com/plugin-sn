@@ -65,6 +65,7 @@ import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { type Account, type AuditEvent, type SnDetail, type SnItem, type SnStatus, errorMessage, exportCodes, generateCodes, getCode, listCodes, revealCode, searchAccounts, updateCode } from '../api'
 import { downloadCodes } from '../utils/csv'
+import { parseSnTime } from '../utils/time'
 const { t, te, locale } = useI18n()
 const viewport = window.matchMedia('(max-width: 600px)')
 const narrow = ref(viewport.matches)
@@ -84,8 +85,7 @@ const accountLabel = (a: Account) => `${a.username}${a.nickname ? ` · ${a.nickn
 const statusType = (value: SnStatus) => value === 'active' ? 'success' : value === 'disabled' ? 'danger' : 'info'
 function formatTime(value: number | string | null) {
   if (value == null || value === '') return '—'
-  const numeric = typeof value === 'number' || /^\d+$/.test(value) ? Number(value) : null
-  const date = new Date(numeric == null ? value : numeric < 1e12 ? numeric * 1000 : numeric)
+  const date = parseSnTime(value)
   return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString(locale.value, { hour12: false })
 }
 const formatContext = (value: AuditEvent['context']) => typeof value === 'string' ? value : JSON.stringify(value, null, 2)
