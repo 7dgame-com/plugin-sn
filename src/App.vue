@@ -7,7 +7,7 @@
         <el-result v-else-if="state === 'denied' || state === 'revoked'" icon="warning" :title="t(state === 'revoked' ? 'accessRevoked' : 'accessDenied')" :sub-title="t('accessDeniedHint')">
           <template #extra><el-button @click="retry">{{ t('recheckAccess') }}</el-button></template>
         </el-result>
-        <el-result v-else-if="state === 'error'" icon="error" :title="t('sessionFailed')">
+        <el-result v-else-if="state === 'error' || state === 'unavailable'" icon="error" :title="t(state === 'unavailable' ? 'accessUnavailable' : 'sessionFailed')">
           <template #extra><el-button @click="retry">{{ t('retry') }}</el-button></template>
         </el-result>
         <p v-else>{{ t('connecting') }}</p>
@@ -34,7 +34,7 @@ const { t, locale } = useI18n()
 const elementLocale = computed(() => ({ 'zh-CN': zhCn, 'zh-TW': zhTw, 'en-US': en, 'ja-JP': ja, 'th-TH': th })[locale.value] || en)
 const route = useRoute()
 const inIframe = isInIframe()
-const { state, authorized, userId, verify, reset, revoke, expire, retry } = useSession()
+const { state, authorized, userId, verify, reset, revoke, unavailable, expire, retry } = useSession()
 usePluginMessageBridge({
   onInit: ({ token, config }) => {
     if (!inIframe) return
@@ -48,9 +48,11 @@ usePluginMessageBridge({
 })
 window.addEventListener('sn-session-expired', expire)
 window.addEventListener('sn-access-revoked', revoke)
+window.addEventListener('sn-access-unavailable', unavailable)
 onBeforeUnmount(() => {
   window.removeEventListener('sn-session-expired', expire)
   window.removeEventListener('sn-access-revoked', revoke)
+  window.removeEventListener('sn-access-unavailable', unavailable)
   reset()
 })
 </script>

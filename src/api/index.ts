@@ -20,9 +20,10 @@ mainApi.interceptors.response.use((response) => {
   const config = error.config as RequestConfig | undefined
   if (!config) return Promise.reject(error)
   if (config._generation !== getTokenGeneration()) return Promise.reject(error)
-  if (error.response?.status === 403 && /^\/plugin-sn(?:\/|$)/.test(config.url ?? '')) {
+  const accessUnavailable = error.response?.status === 503 && error.response?.data?.error_code === 'PLUGIN_ACCESS_CONFIG_UNAVAILABLE'
+  if ((error.response?.status === 403 || accessUnavailable) && /^\/plugin-sn(?:\/|$)/.test(config.url ?? '')) {
     removeAllTokens()
-    window.dispatchEvent(new Event('sn-access-revoked'))
+    window.dispatchEvent(new Event(accessUnavailable ? 'sn-access-unavailable' : 'sn-access-revoked'))
     return Promise.reject(error)
   }
   if (error.response?.status !== 401) return Promise.reject(error)

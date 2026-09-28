@@ -84,7 +84,7 @@ describe('server-authorized SN session boundary', () => {
     expect(session.authorized.value).toBe(false)
     expect(session.state.value).toBe('denied')
   })
-  it('unmounts sensitive content during revalidation and ignores a capability response after revocation', async () => {
+  it.each([['revoke', 'revoked'], ['unavailable', 'unavailable']] as const)('clears sensitive content and ignores a capability response after %s', async (action, state) => {
     verifyCurrentToken.mockResolvedValue(reply(['admin']))
     const session = useSession()
     await session.verify('first')
@@ -94,10 +94,10 @@ describe('server-authorized SN session boundary', () => {
     expect(session.authorized.value).toBe(false)
     expect(session.userId.value).toBeNull()
     await vi.waitFor(() => expect(getManagementAccess).toHaveBeenCalledTimes(2))
-    session.revoke()
+    session[action]()
     resolve({ allowed: true, access_scope: 'admin-only' })
     await pending
-    expect(session.state.value).toBe('revoked')
+    expect(session.state.value).toBe(state)
     expect(session.authorized.value).toBe(false)
     expect(getToken()).toBeNull()
   })

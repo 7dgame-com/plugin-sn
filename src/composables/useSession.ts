@@ -3,7 +3,7 @@ import { getManagementAccess, verifyCurrentToken } from '../api'
 import { removeAllTokens, requestParentTokenRefresh, setToken } from '../utils/token'
 
 export function useSession() {
-  const state = ref<'waiting' | 'checking' | 'ready' | 'denied' | 'revoked' | 'error'>('waiting')
+  const state = ref<'waiting' | 'checking' | 'ready' | 'denied' | 'revoked' | 'unavailable' | 'error'>('waiting')
   const userId = ref<number | null>(null)
   const authorized = ref(false)
   let generation = 0
@@ -48,6 +48,7 @@ export function useSession() {
   }
   function deny() { reset(); state.value = 'denied' }
   function revoke() { reset(); state.value = 'revoked' }
+  function unavailable() { reset(); state.value = 'unavailable' }
   function expire() { reset(); state.value = 'error' }
   async function retry() {
     if (currentToken) return verify(currentToken)
@@ -58,5 +59,5 @@ export function useSession() {
     if (refreshed?.accessToken) await verify(refreshed.accessToken)
     else state.value = 'error'
   }
-  return { state, userId, authorized: computed(() => authorized.value), verify, reset, revoke, expire, retry }
+  return { state, userId, authorized: computed(() => authorized.value), verify, reset, revoke, unavailable, expire, retry }
 }

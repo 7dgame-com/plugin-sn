@@ -11,7 +11,7 @@ try {
   const page = await context.newPage()
   const errors = [], operations = []
   page.on('pageerror', (error) => errors.push(error.message))
-  let role = 'root', accessScope = 'root-only', snSession = false, failGenerate = false
+  let role = 'root', accessScope = 'root-only', snSession = false, failGenerate = false, configUnavailable = false
   const hasAccess = () => !snSession && ({ root: 4, admin: 3, manager: 2, user: 1 }[role] >= { 'root-only': 4, 'admin-only': 3, 'manager-only': 2, 'auth-only': 1 }[accessScope])
   let records = [
     { id: 1, sn_tail: 'A1B2', user_id: 9, username: 'classroom', nickname: '教室账号', enabled: true, status: 'pending', device_uuid: null, created_at: 1790424000, activated_at: null, last_login_at: null, remark: '第一批设备' },
@@ -25,8 +25,12 @@ try {
     const request = route.request(), url = new URL(request.url()), method = request.method(), path = url.pathname
     assert.equal(request.headers().authorization, 'Bearer fixture-token')
     if (path.endsWith('/plugin/verify-token')) return route.fulfill({ json: { code: 0, data: { id: 4, roles: [role] } } })
-    if (path.endsWith('/plugin-sn/access')) return route.fulfill({ json: { success: true, data: { allowed: hasAccess(), access_scope: accessScope } } })
+    if (path.endsWith('/plugin-sn/access')) {
+      if (configUnavailable) return route.fulfill({ status: 503, json: { error_code: 'PLUGIN_ACCESS_CONFIG_UNAVAILABLE', message: 'Plugin access configuration is unavailable.' } })
+      return route.fulfill({ json: { success: true, data: { allowed: hasAccess(), access_scope: accessScope } } })
+    }
     operations.push({ method, path, body: request.postDataJSON() })
+    if (configUnavailable) return route.fulfill({ status: 503, json: { error_code: 'PLUGIN_ACCESS_CONFIG_UNAVAILABLE', message: 'Plugin access configuration is unavailable.' } })
     if (!hasAccess()) return route.fulfill({ status: 403, json: { message: 'SN management access denied' } })
     let data
     if (path.endsWith('/accounts')) data = { items: [{ id: 9, username: 'classroom', nickname: '教室账号' }], total: 1, page: 1, page_size: 30 }
@@ -163,6 +167,18 @@ try {
   snSession = false
   await verifySession('TOKEN_UPDATE', { token: 'fixture-token' })
   await frame().getByRole('heading', { name: 'SN distribution' }).waitFor()
+  await frame().getByRole('button', { name: 'Reveal code', exact: true }).first().click()
+  await frame().getByRole('dialog', { name: 'Full SN code' }).waitFor()
+  configUnavailable = true
+  const policyFailureCount = operations.length
+  await page.evaluate(() => document.querySelector('iframe').contentDocument.querySelector('.toolbar button').click())
+  await frame().getByText('SN management access cannot be verified. Please try again later.', { exact: true }).waitFor()
+  assert.equal(await frame().locator('.sn-page').count(), 0)
+  assert.equal(await frame().getByRole('dialog', { name: 'Full SN code' }).count(), 0)
+  assert.equal(operations.length, policyFailureCount + 1)
+  configUnavailable = false
+  await verifySession('TOKEN_UPDATE', { token: 'fixture-token' })
+  await frame().getByRole('heading', { name: 'SN distribution' }).waitFor()
   await send('DESTROY', {})
   await frame().getByText('Verifying SN management access…').waitFor()
   assert.equal(await frame().locator('.sn-page').count(), 0)
@@ -171,7 +187,7 @@ try {
   assert.deepEqual(errors, [])
   assert.equal(operations.filter((op) => op.path.endsWith('/generate')).length, 2)
   assert.ok(operations.some((op) => op.method === 'PATCH' && op.body.remark === 'updated remark'))
-  console.log('Passed: handshake, dynamic access, reveal/copy, generation validation, batch generation/export, CSV safety, disable/restore, remark/audit, failed-generation draft, theme/language, mobile, admin grant/revocation, forged INIT denial, SN-session denial, destroy, standalone gate.')
+  console.log('Passed: handshake, dynamic access, reveal/copy, generation validation, batch generation/export, CSV safety, disable/restore, remark/audit, business-503 draft preservation, theme/language, mobile, admin grant/revocation, forged INIT denial, SN-session denial, policy-503 teardown, destroy, standalone gate.')
 } finally {
   await browser.close()
 }

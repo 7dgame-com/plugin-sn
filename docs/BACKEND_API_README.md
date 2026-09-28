@@ -91,6 +91,10 @@ Access Token 最多继续 3 小时。恢复只恢复原绑定。账号删除、�
 所有 `/v1/plugin-sn` 接口均验证 Bearer Token，返回 `Cache-Control: no-store`。管理业务接口要求正常启用的用户，并由主后端逐请求读取可信插件配置判断权限：`root-only` 允许 root；`admin-only` 允许 admin/root；`manager-only` 允许 manager/admin/root；`auth-only` 允许 user/manager/admin/root。SN 设备登录来源的 Token 始终不能管理 SN。
 
 root 可在系统管理的插件配置中修改 `sn-management.access_scope`。插件未登记或禁用时拒绝管理；缺失/非法 scope 或配置读取不可用时返回 503，不回退到默认授权。授权收回后下一次业务请求返回 403，前端清空 token 并卸载敏感页面，不自动刷新 Token 或重试请求。后端不接受 INIT 或请求正文提供的访问范围作为授权依据。
+
+策略配置不可用的 503 保留 Yii 标准错误字段，并额外返回 `error_code:"PLUGIN_ACCESS_CONFIG_UNAVAILABLE"`。前端只将这一明确错误码的 503 视为授权无法确认：清空 token、卸载敏感界面、废弃旧请求代次，拒绝迟到的成功响应。普通业务 503 不撤销授权；两者都不自动重试写请求。
+
+注册默认 root-only；本次用户要求最终线上采用 admin-only（admin + root），并保留通过同一插件配置改回 root-only 的能力。部署及验收应核对实际保存值，不能仅凭注册示例判断线上范围。
 列表和详情只返回尾号，不返回摘要、密文、密钥或明文 SN。
 列表、详情、生成与导出中的设备字段仍为 `device_uuid`：未激活时为 `null`，激活后为
 规范化 UUID，停用后保持原值。后端存储调整不改变插件的 API 字段或 TypeScript 类型。
