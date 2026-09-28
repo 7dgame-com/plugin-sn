@@ -4,7 +4,9 @@
       <router-view v-if="authorized" :key="userId!" />
       <div v-if="state !== 'ready'" class="session-state" role="status">
         <template v-if="!inIframe"><h1>{{ t('title') }}</h1><p>{{ t('fromHost') }}</p></template>
-        <el-result v-else-if="state === 'denied'" icon="warning" :title="t('rootOnly')" />
+        <el-result v-else-if="state === 'denied' || state === 'revoked'" icon="warning" :title="t(state === 'revoked' ? 'accessRevoked' : 'accessDenied')" :sub-title="t('accessDeniedHint')">
+          <template #extra><el-button @click="retry">{{ t('recheckAccess') }}</el-button></template>
+        </el-result>
         <el-result v-else-if="state === 'error'" icon="error" :title="t('sessionFailed')">
           <template #extra><el-button @click="retry">{{ t('retry') }}</el-button></template>
         </el-result>
@@ -32,7 +34,7 @@ const { t, locale } = useI18n()
 const elementLocale = computed(() => ({ 'zh-CN': zhCn, 'zh-TW': zhTw, 'en-US': en, 'ja-JP': ja, 'th-TH': th })[locale.value] || en)
 const route = useRoute()
 const inIframe = isInIframe()
-const { state, authorized, userId, verify, reset, expire, retry } = useSession()
+const { state, authorized, userId, verify, reset, revoke, expire, retry } = useSession()
 usePluginMessageBridge({
   onInit: ({ token, config }) => {
     if (!inIframe) return
@@ -45,7 +47,12 @@ usePluginMessageBridge({
   onDestroy: reset,
 })
 window.addEventListener('sn-session-expired', expire)
-onBeforeUnmount(() => { window.removeEventListener('sn-session-expired', expire); reset() })
+window.addEventListener('sn-access-revoked', revoke)
+onBeforeUnmount(() => {
+  window.removeEventListener('sn-session-expired', expire)
+  window.removeEventListener('sn-access-revoked', revoke)
+  reset()
+})
 </script>
 <style scoped>
 .plugin-shell { min-height: 100vh; }

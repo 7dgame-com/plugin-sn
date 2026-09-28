@@ -1,5 +1,5 @@
 import axios, { type InternalAxiosRequestConfig } from 'axios'
-import { getToken, getTokenGeneration, requestParentTokenRefresh, setToken } from '../utils/token'
+import { getToken, getTokenGeneration, removeAllTokens, requestParentTokenRefresh, setToken } from '../utils/token'
 
 export const mainApi = axios.create({ baseURL: '/api/v1', timeout: 15000 })
 type RequestConfig = InternalAxiosRequestConfig & { _retried?: boolean; _generation?: number }
@@ -18,8 +18,14 @@ mainApi.interceptors.response.use((response) => {
   return response
 }, async (error) => {
   const config = error.config as RequestConfig | undefined
-  if (!config || error.response?.status !== 401) return Promise.reject(error)
+  if (!config) return Promise.reject(error)
   if (config._generation !== getTokenGeneration()) return Promise.reject(error)
+  if (error.response?.status === 403 && /^\/plugin-sn(?:\/|$)/.test(config.url ?? '')) {
+    removeAllTokens()
+    window.dispatchEvent(new Event('sn-access-revoked'))
+    return Promise.reject(error)
+  }
+  if (error.response?.status !== 401) return Promise.reject(error)
   if (config._retried) {
     window.dispatchEvent(new Event('sn-session-expired'))
     return Promise.reject(error)
@@ -58,6 +64,9 @@ async function data<T>(request: Promise<{ data: Envelope<T> }>): Promise<T> {
   return body.data
 }
 export const verifyCurrentToken = () => mainApi.get<{ code: number; data: { id: number; roles: string[] } }>('/plugin/verify-token')
+export type AccessScope = 'root-only' | 'admin-only' | 'manager-only' | 'auth-only'
+export interface SnAccess { allowed: boolean; access_scope: AccessScope | null }
+export const getManagementAccess = () => data<SnAccess>(mainApi.get('/plugin-sn/access'))
 export const searchAccounts = (q: string, page = 1) => data<Page<Account>>(mainApi.get('/plugin-sn/accounts', { params: { q, page, page_size: 30 } }))
 export const listCodes = (params: { q?: string; status?: string; user_id?: number; page: number; page_size: number }) => data<Page<SnItem>>(mainApi.get('/plugin-sn', { params }))
 export const getCode = (id: number) => data<SnDetail>(mainApi.get(`/plugin-sn/${id}`))

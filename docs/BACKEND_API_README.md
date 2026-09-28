@@ -1,6 +1,6 @@
 # SN 分发与 Rokid 登录
 
-本文件是平台主后端协议的随附参考，核对日期为 2026-09-27。源文档位于
+本文件是平台主后端协议的随附参考，核对日期为 2026-09-28。源文档位于
 `xrugc-platform/server/docs/device-sn.md`。认证、绑定、数据库迁移和 Token 签发由平台主后端
 及其身份服务提供；本插件仓库不包含后端或 Unity/Rokid 客户端实现。
 
@@ -10,7 +10,7 @@
 
 ## 行为
 
-root 通过 `sn-management` 插件选择已有普通账号，一次生成 1–100 个永久 SN。
+符合插件当前访问范围的普通登录会话，通过 `sn-management` 插件选择已有普通账号，一次生成 1–100 个永久 SN；初始访问范围为 `root-only`。
 每个 SN 只属于一个账号，首次激活只绑定一个 UUID；同账号可绑定多台设备。
 管理端可以停用/恢复及修改备注，不能解绑、换机、改账号或直接删除 SN。
 仅 `status=10` 且无 `root/admin/manager` 角色的账号可以使用设备会话。
@@ -88,13 +88,16 @@ Access Token 最多继续 3 小时。恢复只恢复原绑定。账号删除、�
 
 ## 管理 API
 
-所有 `/v1/plugin-sn` 接口都要求正常启用的 root 用户 Bearer Token，返回 `Cache-Control: no-store`。
+所有 `/v1/plugin-sn` 接口均验证 Bearer Token，返回 `Cache-Control: no-store`。管理业务接口要求正常启用的用户，并由主后端逐请求读取可信插件配置判断权限：`root-only` 允许 root；`admin-only` 允许 admin/root；`manager-only` 允许 manager/admin/root；`auth-only` 允许 user/manager/admin/root。SN 设备登录来源的 Token 始终不能管理 SN。
+
+root 可在系统管理的插件配置中修改 `sn-management.access_scope`。插件未登记或禁用时拒绝管理；缺失/非法 scope 或配置读取不可用时返回 503，不回退到默认授权。授权收回后下一次业务请求返回 403，前端清空 token 并卸载敏感页面，不自动刷新 Token 或重试请求。后端不接受 INIT 或请求正文提供的访问范围作为授权依据。
 列表和详情只返回尾号，不返回摘要、密文、密钥或明文 SN。
 列表、详情、生成与导出中的设备字段仍为 `device_uuid`：未激活时为 `null`，激活后为
 规范化 UUID，停用后保持原值。后端存储调整不改变插件的 API 字段或 TypeScript 类型。
 
 | 方法和路径 | 输入/结果 |
 |---|---|
+| GET `/v1/plugin-sn/access` | 已认证会话的当前管理能力：`{success:true,data:{allowed:boolean,access_scope:"root-only"\|"admin-only"\|"manager-only"\|"auth-only"\|null}}`；无权限时仍返回 200 和 `allowed:false`，不返回任何 SN 数据 |
 | GET `/v1/plugin-sn/accounts` | `q,page,page_size`；仅返回可绑定账号 `id,username,nickname` |
 | GET `/v1/plugin-sn` | `q` 搜索尾号/账号/UUID；`status=pending/active/disabled`、`user_id`、分页 |
 | GET `/v1/plugin-sn/{id}` | 脱敏详情及最近 100 条操作审计 |
@@ -106,6 +109,8 @@ Access Token 最多继续 3 小时。恢复只恢复原绑定。账号删除、�
 分页响应是 `{success:true,data:{items,total,page,page_size}}`，默认每页 20，最大 100。
 其他管理响应是 `{success:true,data:...}`；错误使用 Yii 标准 HTTP 状态及 `message`。
 SN 时间字段采用 UTC 数据库时间。账号删除时其 SN 级联撤销，既有审计保留。
+
+iframe 先调用原 `GET /v1/plugin/verify-token` 确认用户身份，再调用 `/v1/plugin-sn/access`。缺失或无效认证返回 401；配置读取异常返回 503。插件不存在、禁用或属于私有组织时返回 `allowed:false,access_scope:null`；设备 SN 来源会话也返回同样的拒绝能力。能力结果用于界面显示，不能替代每个业务 API 的实时授权。普通绑定账号条件不随管理范围放宽。
 
 ## 配置、迁移和双后端
 
@@ -127,6 +132,19 @@ SN 时间字段采用 UTC 数据库时间。账号删除时其 SN 级联撤销�
    摘要各 30 次/分钟；Redis 故障拒绝请求。双后端应共享限流状态。
 6. 未证明双侧一致性前，插件和 Rokid 固定到同一个权威业务入口。插件生产 Nginx 只接受
    一个 `APP_API_1_URL`；不能用随机双后端模板。业务入口不是 Portainer 管理入口。
+7. 动态权限先部署 system-admin 的严格只读 `GET /api/v1/plugin/access-config/:id`，
+   再在两侧主 API 配置非 secret 环境变量 `PLUGIN_ACCESS_CONFIG_BASE_URL`，指向同环境
+   可信配置服务，例如开发 Docker 网络的 `http://system-admin-d:8088`、生产 Docker 网络的
+   `http://system-admin-p:8088`；这些是部署配置示例，必须核对目标服务名与连通性。
+   主 API 先验证真实身份、角色和 SN 来源，再逐请求读取固定配置路径；不转发用户 Token、
+   Cookie、Host 或角色。配置源只返回 `organization_name IS NULL` 的公共插件元数据，
+   不回调主 API 验证 Bearer，避免两服务相互等待。不存在、禁用或组织非 NULL（包括空白）
+   返回 404，私有组织插件本轮不支持，root 也不能绕过。成功响应要求 `code:0` 和 `data` 内
+   的 `policy_version:1`、匹配插件 ID、`enabled:true`、合法 scope；非法配置/数据库异常为 503。
+   reader 不跟随重定向、不使用环境代理，连接超时 1 秒、总超时 5 秒、响应上限 16 KiB。
+   双侧配置服务须读取同一环境的权威插件配置库，配置响应不包含插件 URL 或组织名。
+   配置 reader 不复制数据库凭据、不新增表。升级主 API 并确认能力接口正常后再部署前端；
+   本节描述接入要求，不表示该配置链路已经部署。
 
 开发环境已有此前 32 位版本的迁移与测试数据；本次 16 位生成规则是否已部署，须按
 目标环境实际镜像和验收记录核实。长度调整复用现有摘要、密文和尾号字段，不需要
@@ -152,5 +170,6 @@ DEVICE_SN_MYSQL_TEST_PORT=13318 DEVICE_SN_REDIS_TEST_PORT=16318 php tests/integr
 ```
 
 上线验收记录应包含环境、镜像/提交、迁移及 key ID（不含 key 内容）、测试用例和结果。
-验证 root 生成→Rokid 激活→重登→刷新→单码停用，以及另一个设备和密码登录不受影响。
+验证 root 默认可用、admin 在 root-only 下被拒绝、改为 admin-only 后可管理、改回后已有 admin 页面及 API 被拒绝；SN 来源 Token 即便在 auth-only 下也不获得管理权限。配置读取失败须拒绝访问。
+再验证 SN 生成→Rokid 激活→重登→刷新→单码停用，以及另一个设备和密码登录不受影响。
 双后端必须额外验证 A 激活/B 登录、A 停用/B 拒绝刷新、并发绑定及失败切换。

@@ -1,10 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { AxiosError, type InternalAxiosRequestConfig } from 'axios'
-import { mainApi, listCodes, searchAccounts, generateCodes, updateCode, revealCode, exportCodes, errorMessage } from '../api'
-import { removeAllTokens, setToken } from '../utils/token'
+import { mainApi, getManagementAccess, listCodes, searchAccounts, generateCodes, updateCode, revealCode, exportCodes, errorMessage } from '../api'
+import { getToken, removeAllTokens, setToken } from '../utils/token'
 
 describe('SN management API contract', () => {
   beforeEach(() => { removeAllTokens(); setToken('root-token') })
+  it('gets the trusted access scope from the management backend', async () => {
+    const adapter = vi.fn(async (config: InternalAxiosRequestConfig) => ({ data: { success: true, data: { allowed: true, access_scope: 'admin-only' } }, status: 200, statusText: 'OK', headers: {}, config }))
+    mainApi.defaults.adapter = adapter
+    await expect(getManagementAccess()).resolves.toEqual({ allowed: true, access_scope: 'admin-only' })
+    expect(adapter.mock.calls[0][0].url).toBe('/plugin-sn/access')
+    expect(adapter.mock.calls[0][0].headers.Authorization).toBe('Bearer root-token')
+  })
   it('sends generation, reveal, changes and export through their audited APIs', async () => {
     const requests: InternalAxiosRequestConfig[] = []
     mainApi.defaults.adapter = async (config) => {
@@ -48,6 +55,44 @@ describe('SN management API contract', () => {
     removeAllTokens()
     finish()
     await expect(pending).rejects.toThrow('Session ended')
+  })
+  it('revokes access on management 403 without retrying or retaining a token', async () => {
+    const revoked = vi.fn()
+    window.addEventListener('sn-access-revoked', revoked)
+    try {
+      const adapter = vi.fn(async (config: InternalAxiosRequestConfig) => {
+        throw new AxiosError('Forbidden', 'ERR_BAD_REQUEST', config, undefined, { data: { message: 'SN access denied' }, status: 403, statusText: 'Forbidden', headers: {}, config })
+      })
+      mainApi.defaults.adapter = adapter
+      await expect(generateCodes({ user_id: 9, count: 1, remark: '' })).rejects.toThrow('Forbidden')
+      expect(adapter).toHaveBeenCalledTimes(1)
+      expect(revoked).toHaveBeenCalledTimes(1)
+      expect(getToken()).toBeNull()
+      await expect(listCodes({ page: 1, page_size: 20 })).rejects.toThrow('Session not ready')
+      expect(adapter).toHaveBeenCalledTimes(1)
+    } finally {
+      window.removeEventListener('sn-access-revoked', revoked)
+    }
+  })
+  it('ignores a late 403 from a previous session instead of revoking the replacement', async () => {
+    let fail!: () => void
+    mainApi.defaults.adapter = (config) => new Promise((_resolve, reject) => {
+      fail = () => reject(new AxiosError('Forbidden', 'ERR_BAD_REQUEST', config, undefined, { data: {}, status: 403, statusText: 'Forbidden', headers: {}, config }))
+    })
+    const revoked = vi.fn()
+    window.addEventListener('sn-access-revoked', revoked)
+    try {
+      const pending = revealCode(1)
+      await vi.waitFor(() => expect(fail).toBeTypeOf('function'))
+      removeAllTokens()
+      setToken('replacement')
+      fail()
+      await expect(pending).rejects.toThrow('Forbidden')
+      expect(revoked).not.toHaveBeenCalled()
+      expect(getToken()).toBe('replacement')
+    } finally {
+      window.removeEventListener('sn-access-revoked', revoked)
+    }
   })
   it('surfaces server errors and rejects an application-level failure', async () => {
     mainApi.defaults.adapter = async (config) => ({ data: { success: false, message: 'Account is not eligible' }, status: 200, statusText: 'OK', headers: {}, config })
