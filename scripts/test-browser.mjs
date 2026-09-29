@@ -40,10 +40,15 @@ try {
       data = { items: Array.from({ length: body.count }, (_, i) => ({ ...records[0], id: records.length + i + 1, sn_tail: `T${i}ST`, remark: body.remark, sn: `TEST-ONLY-GENERATED-${i}` })) }
       records = [...records, ...data.items.map(({ sn, ...row }) => row)]
     } else if (path.endsWith('/reveal')) data = { id: 1, sn: 'TEST-ONLY-REVEALED-SN' }
-    else if (path.endsWith('/export')) data = { items: request.postDataJSON().ids.map((id) => ({ ...records.find((r) => r.id === id), sn: `TEST-EXPORT-${id}`, username: '=SUM(A1)', remark: 'comma,"quote"' })) }
+    else if (path.endsWith('/export')) data = { items: request.postDataJSON().ids.map((id) => ({ ...records.find((r) => r.id === id), sn: `TEST-EXPORT-${id}`, username: records.find((r) => r.id === id).user_id === null ? null : '=SUM(A1)', remark: 'comma,"quote"' })) }
     else if (/\/plugin-sn\/\d+$/.test(path)) {
       const row = records.find((r) => r.id === Number(path.split('/').at(-1)))
-      if (method === 'PATCH') { Object.assign(row, request.postDataJSON()); row.status = !row.enabled ? 'disabled' : row.device_uuid ? 'active' : 'pending' }
+      if (method === 'PATCH') {
+        const body = request.postDataJSON()
+        if (row.user_id === null && 'enabled' in body) return route.fulfill({ status: 409, json: { message: 'This SN is permanently revoked because its account was deleted.' } })
+        Object.assign(row, body)
+        row.status = row.user_id === null ? 'revoked' : !row.enabled ? 'disabled' : row.device_uuid ? 'active' : 'pending'
+      }
       data = { ...row, events }
     } else if (path.endsWith('/plugin-sn')) {
       const status = url.searchParams.get('status')
@@ -111,6 +116,48 @@ try {
   await page.waitForFunction(() => document.querySelector('iframe').contentDocument.querySelector('.remark-form textarea')?.value === 'updated remark')
   await drawer.locator('.el-drawer__close-btn').click()
   await drawer.waitFor({ state: 'hidden' })
+
+  // Account deletion is irreversible, while records remain available for audit.
+  records.push({ ...records[1], id: 100, sn_tail: 'R3VK', user_id: null, original_user_id: 77,
+    username: null, nickname: null, enabled: false, status: 'revoked', revocation_reason: 'account_deleted' })
+  await frame().getByRole('button', { name: '刷新', exact: true }).click()
+  const revokedRow = frame().locator('.el-table__body tr').filter({ hasText: 'R3VK' })
+  await revokedRow.getByText('账号已删除（原 ID：77）', { exact: true }).waitFor()
+  assert.equal(await revokedRow.getByRole('button', { name: /^(恢复|停用)$/ }).count(), 0)
+  await revokedRow.getByRole('button', { name: '详情', exact: true }).click()
+  await drawer.getByText('绑定账号已删除，此 SN 已永久作废，不能恢复。记录和完整码仅供留档。', { exact: true }).waitFor()
+  await drawer.getByRole('textbox').fill('revoked archive')
+  await Promise.all([
+    page.waitForResponse((response) => response.url().endsWith('/plugin-sn/100') && response.request().method() === 'PATCH'),
+    drawer.getByRole('button', { name: '保存备注', exact: true }).click(),
+  ])
+  assert.equal(records.find((row) => row.id === 100).status, 'revoked')
+  assert.equal(records.find((row) => row.id === 100).remark, 'revoked archive')
+  await drawer.locator('.el-drawer__close-btn').click()
+  await drawer.waitFor({ state: 'hidden' })
+  await revokedRow.getByRole('button', { name: '查看完整码', exact: true }).click()
+  await secretDialog.getByText('绑定账号已删除，此 SN 已永久作废，不能恢复。记录和完整码仅供留档。', { exact: true }).waitFor()
+  await secretDialog.getByRole('button', { name: '关闭', exact: true }).click()
+  await secretDialog.waitFor({ state: 'hidden' })
+  await frame().locator('.toolbar .el-select').first().click()
+  await Promise.all([
+    page.waitForResponse((response) => response.url().includes('status=revoked')),
+    frame().getByRole('option', { name: '已作废', exact: true }).click(),
+  ])
+  await revokedRow.waitFor()
+  assert.equal(await frame().locator('.el-table__body tr').count(), 1)
+  await frame().locator('.el-table__body-wrapper .el-scrollbar__wrap').evaluate((element) => { element.scrollLeft = 0 })
+  await revokedRow.locator('.el-checkbox__inner').click()
+  const revokedDownload = page.waitForEvent('download')
+  await frame().getByRole('button', { name: /导出所选 CSV/ }).click()
+  const revokedCsv = await fs.readFile(await (await revokedDownload).path(), 'utf8')
+  assert.ok(revokedCsv.includes('"revoked"'))
+  assert.equal(revokedCsv.split('\r\n').length, 2)
+  assert.equal(operations.filter((op) => op.path.endsWith('/plugin-sn/100') && op.method === 'PATCH' && 'enabled' in op.body).length, 0)
+  // Restore the ordinary list for subsequent access-control checks.
+  await frame().locator('.toolbar .el-select').first().hover()
+  await frame().locator('.toolbar .el-select').first().locator('.el-select__clear').click()
+  await frame().getByText('A1B2', { exact: false }).waitFor()
 
   failGenerate = true
   await frame().getByRole('button', { name: '生成 SN', exact: true }).click()
@@ -187,7 +234,7 @@ try {
   assert.deepEqual(errors, [])
   assert.equal(operations.filter((op) => op.path.endsWith('/generate')).length, 2)
   assert.ok(operations.some((op) => op.method === 'PATCH' && op.body.remark === 'updated remark'))
-  console.log('Passed: handshake, dynamic access, reveal/copy, generation validation, batch generation/export, CSV safety, disable/restore, remark/audit, business-503 draft preservation, theme/language, mobile, admin grant/revocation, forged INIT denial, SN-session denial, policy-503 teardown, destroy, standalone gate.')
+  console.log('Passed: handshake, dynamic access, reveal/copy, generation validation, batch generation/export, CSV safety, disable/restore, revoked record/filter/no-restore/archive export, remark/audit, business-503 draft preservation, theme/language, mobile, admin grant/revocation, forged INIT denial, SN-session denial, policy-503 teardown, destroy, standalone gate.')
 } finally {
   await browser.close()
 }
