@@ -25,4 +25,8 @@ describe('CSV export', () => {
       '"2","0000-1111-2222-3333-4444-5555-6666-7777","test-user","device-2","active",""',
     ])
   })
+  it('retains a revoked SN for archival export when its account no longer exists', () => {
+    const csv = codesCsv([{ id: 3, sn: '0000-1111-2222-3333', username: null, device_uuid: 'original-device', status: 'revoked', remark: '账号已删除' }])
+    expect(csv.split('\r\n')[1]).toBe('"3","0000-1111-2222-3333","","original-device","revoked","账号已删除"')
+  })
 })

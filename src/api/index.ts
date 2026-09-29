@@ -45,9 +45,10 @@ mainApi.interceptors.response.use((response) => {
 })
 
 export interface Account { id: number; username: string; nickname: string | null }
-export type SnStatus = 'pending' | 'active' | 'disabled'
+export type SnStatus = 'pending' | 'active' | 'disabled' | 'revoked'
 export interface SnItem {
-  id: number; sn_tail: string; user_id: number; username: string; nickname: string | null
+  id: number; sn_tail: string; user_id: number | null; original_user_id: number | null; username: string | null; nickname: string | null
+  revocation_reason: 'account_deleted' | null
   enabled: boolean; status: SnStatus; device_uuid: string | null; created_at: number | string
   activated_at: number | string | null; last_login_at: number | string | null; remark: string | null
 }
@@ -56,7 +57,7 @@ export interface AuditEvent {
   context: Record<string, unknown> | string | null
 }
 export interface SnDetail extends SnItem { events: AuditEvent[] }
-export interface SnExport { id: number; sn: string; username: string; device_uuid: string | null; status: SnStatus; remark: string | null }
+export interface SnExport { id: number; sn: string; username: string | null; device_uuid: string | null; status: SnStatus; remark: string | null }
 export interface Page<T> { items: T[]; total: number; page: number; page_size: number }
 interface Envelope<T> { success: boolean; data: T; message?: string }
 async function data<T>(request: Promise<{ data: Envelope<T> }>): Promise<T> {
